@@ -60,7 +60,7 @@ const float SPRING_DAMPING = 0.9;
 
 // EaseOutCirc
 float ease(float x) {
-    return sqrt(1.0 - pow(x - 1.0, 2.0));
+    return sqrt(x * (2.0 - x));
 }
 
 // // EaseOutBack
@@ -91,22 +91,18 @@ float getSdfRectangle(in vec2 p, in vec2 xy, in vec2 b)
 }
 
 // Based on Inigo Quilez's 2D distance functions article: https://iquilezles.org/articles/distfunctions2d/
-// Potencially optimized by eliminating conditionals and loops to enhance performance and reduce branching
-
 float seg(in vec2 p, in vec2 a, in vec2 b, inout float s, float d) {
     vec2 e = b - a;
     vec2 w = p - a;
-    vec2 proj = a + e * clamp(dot(w, e) / dot(e, e), 0.0, 1.0);
-    float segd = dot(p - proj, p - proj);
-    d = min(d, segd);
+    vec2 proj = w - e * clamp(dot(w, e) / dot(e, e), 0.0, 1.0);
+    d = min(d, dot(proj, proj));
 
     float c0 = step(0.0, p.y - a.y);
     float c1 = 1.0 - step(0.0, p.y - b.y);
     float c2 = 1.0 - step(0.0, e.x * w.y - e.y * w.x);
     float allCond = c0 * c1 * c2;
     float noneCond = (1.0 - c0) * (1.0 - c1) * (1.0 - c2);
-    float flip = mix(1.0, -1.0, step(0.5, allCond + noneCond));
-    s *= flip;
+    s *= mix(1.0, -1.0, step(0.5, allCond + noneCond));
     return d;
 }
 
@@ -126,10 +122,6 @@ vec2 normalize(vec2 value, float isPosition) {
     return (value * 2.0 - (iResolution.xy * isPosition)) / iResolution.y;
 }
 
-float antialising(float distance) {
-	return 1. - smoothstep(0., normalize(vec2(BLUR, BLUR), 0.).x, distance);
-}
-
 float determineIfTopRightIsLeading(vec2 a, vec2 b) {
     float condition1 = step(b.x, a.x) * step(a.y, b.y); // a.x < b.x && a.y > b.y
     float condition2 = step(a.x, b.x) * step(b.y, a.y); // a.x > b.x && a.y < b.y
@@ -138,20 +130,13 @@ float determineIfTopRightIsLeading(vec2 a, vec2 b) {
     return 1.0 - max(condition1, condition2);
 }
 
-vec2 getRectangleCenter(vec4 rectangle) {
-    return vec2(rectangle.x + (rectangle.z / 2.), rectangle.y - (rectangle.w / 2.));
-}
-
-
 void mainImage(out vec4 fragColor, in vec2 fragCoord){
     #if !defined(WEB)
     fragColor = texture(iChannel0, fragCoord.xy / iResolution.xy);
     #endif
 
-    // normalization & setup(-1, 1 coords)
-    vec2 vu = normalize(fragCoord, 1.);
     vec2 offsetFactor = vec2(-.5, 0.5);
-    
+
     vec4 currentCursor = vec4(normalize(iCurrentCursor.xy, 1.), normalize(iCurrentCursor.zw, 0.));
     vec4 previousCursor = vec4(normalize(iPreviousCursor.xy, 1.), normalize(iPreviousCursor.zw, 0.));
 
@@ -160,80 +145,68 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
 
     vec2 delta = centerCP - centerCC;
     float lineLength = length(delta);
+    float minDist = currentCursor.w * THRESHOLD_MIN_DISTANCE;
+    float progress = (iTime - iTimeCursorChange) / DURATION;
 
-     float sdfCurrentCursor = getSdfRectangle(vu, centerCC, currentCursor.zw * 0.5);
-	
-     vec4 newColor = vec4(fragColor);
-	
-     float minDist = currentCursor.w * THRESHOLD_MIN_DISTANCE;
-     float progress = clamp((iTime - iTimeCursorChange) / DURATION, 0.0, 1.0);
-     if (lineLength > minDist) {
-         // ANIMATION logic
-        
-        float head_eased = 0.0;
-        float tail_eased = 0.0;
+    // Idle / finished animation: skip all trail work (same for every pixel)
+    if (lineLength <= minDist || progress >= 1.0) {
+        return;
+    }
+    progress = clamp(progress, 0.0, 1.0);
 
-        float tail_delay_factor = MAX_TRAIL_LENGTH / lineLength;
+    vec2 vu = normalize(fragCoord, 1.);
+    float aa = BLUR * 2.0 / iResolution.y;
+    vec2 halfMax = max(currentCursor.zw, previousCursor.zw) * 0.5;
+    vec2 aabbMin = min(centerCC, centerCP) - halfMax - aa;
+    vec2 aabbMax = max(centerCC, centerCP) + halfMax + aa;
 
-        float isLongMove = step(MAX_TRAIL_LENGTH, lineLength);
+    // Most of the screen is far from the trail
+    if (vu.x < aabbMin.x || vu.y < aabbMin.y || vu.x > aabbMax.x || vu.y > aabbMax.y) {
+        return;
+    }
 
-        float head_eased_short = ease(progress);
-        float tail_eased_short = ease(smoothstep(tail_delay_factor, 1.0, progress));
-        float head_eased_long = 1.0;
-        float tail_eased_long = ease(progress);
+    // Current cursor is drawn by Ghostty; punch it out without a full SDF
+    vec2 dc = abs(vu - centerCC) - currentCursor.zw * 0.5;
+    if (max(dc.x, dc.y) <= 0.0) {
+        return;
+    }
 
-        head_eased = mix(head_eased_long, head_eased_short, isLongMove);
-        tail_eased = mix(tail_eased_long, tail_eased_short, isLongMove);
+    float head_eased;
+    float tail_eased;
+    if (lineLength >= MAX_TRAIL_LENGTH) {
+        head_eased = ease(progress);
+        tail_eased = ease(smoothstep(MAX_TRAIL_LENGTH / lineLength, 1.0, progress));
+    } else {
+        head_eased = 1.0;
+        tail_eased = ease(progress);
+    }
 
-        // detect straight moves
-        vec2 delta_abs = abs(centerCC - centerCP); 
-        float threshold = 0.001;
-        float isHorizontal = step(delta_abs.y, threshold);
-        float isVertical = step(delta_abs.x, threshold);
-        float isStraightMove = max(isHorizontal, isVertical);
+    vec2 delta_abs = abs(centerCC - centerCP);
+    float isStraightMove = max(step(delta_abs.y, 0.001), step(delta_abs.x, 0.001));
 
-        // -- Making the parallelogram sdf (diagonal move) --
-
-        // animate the TOP-LEFT corners
+    float sdfTrail;
+    if (isStraightMove > 0.5) {
+        vec2 head_center = mix(centerCP, centerCC, head_eased);
+        vec2 tail_center = mix(centerCP, centerCC, tail_eased);
+        vec2 min_center = min(head_center, tail_center);
+        vec2 max_center = max(head_center, tail_center);
+        vec2 box_size = (max_center - min_center) + currentCursor.zw;
+        vec2 box_center = (min_center + max_center) * 0.5;
+        sdfTrail = getSdfRectangle(vu, box_center, box_size * 0.5);
+    } else {
         vec2 head_pos_tl = mix(previousCursor.xy, currentCursor.xy, head_eased);
         vec2 tail_pos_tl = mix(previousCursor.xy, currentCursor.xy, tail_eased);
 
         float isTopRightLeading = determineIfTopRightIsLeading(currentCursor.xy, previousCursor.xy);
         float isBottomLeftLeading = 1.0 - isTopRightLeading;
-        
-        // v0, v1 : "front" of the trail (head)
+
         vec2 v0 = vec2(head_pos_tl.x + currentCursor.z * isTopRightLeading, head_pos_tl.y - currentCursor.w);
         vec2 v1 = vec2(head_pos_tl.x + currentCursor.z * isBottomLeftLeading, head_pos_tl.y);
-        
-        // v2, v3: "back" of the trail (tail)
         vec2 v2 = vec2(tail_pos_tl.x + currentCursor.z * isBottomLeftLeading, tail_pos_tl.y);
         vec2 v3 = vec2(tail_pos_tl.x + currentCursor.z * isTopRightLeading, tail_pos_tl.y - previousCursor.w);
 
-        float sdfTrail_diag = getSdfParallelogram(vu, v0, v1, v2, v3);
-
-        // -- Making the rectangle sdf (straight move) --
-
-        vec2 head_center = mix(centerCP, centerCC, head_eased);
-        vec2 tail_center = mix(centerCP, centerCC, tail_eased);
-
-        vec2 min_center = min(head_center, tail_center);
-        vec2 max_center = max(head_center, tail_center);
-        
-        vec2 box_size = (max_center - min_center) + currentCursor.zw;
-        vec2 box_center = (min_center + max_center) * 0.5;
-
-        float sdfTrail_rect = getSdfRectangle(vu, box_center, box_size * 0.5);
-
-        // -- FINAL SELECTING AND DRAWING --
-        float sdfTrail = mix(sdfTrail_diag, sdfTrail_rect, isStraightMove);
-        
-        vec4 trail = TRAIL_COLOR;
-        float trailAlpha = antialising(sdfTrail);
-        newColor = mix(newColor, trail, trailAlpha);
-
-        // punch hole
-        newColor = mix(newColor, fragColor, step(sdfCurrentCursor, 0.));
+        sdfTrail = getSdfParallelogram(vu, v0, v1, v2, v3);
     }
 
-    fragColor = newColor;
+    fragColor = mix(fragColor, TRAIL_COLOR, 1.0 - smoothstep(0.0, aa, sdfTrail));
 }
