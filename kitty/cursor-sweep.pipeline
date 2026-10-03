@@ -1,0 +1,6 @@
+startgroup
+    animation_start cursor-trail-move
+    animation_stop cursor-trail-stop
+    animation_step 16
+    shaders cursor-sweep
+endgroup

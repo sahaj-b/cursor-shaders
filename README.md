@@ -1,4 +1,4 @@
-# Cursor shaders for ghostty
+# Cursor shaders for ghostty and kitty
 ## WARNING: These are extremely customizable
 
 ## Demos
@@ -14,22 +14,26 @@
 | Customized<br>(faded warp + ripple) | ![customized_warp](https://github.com/user-attachments/assets/3be0d82e-2bff-48ab-824e-3262cbb10d4d)  |
 
 ## Trails
-- [cursor_warp.glsl](cursor_warp.glsl): Neovide-like cursor trail, most customizable shader
-- [cursor_sweep.glsl](cursor_sweep.glsl): Animated trail that shrinks from previous to current cursor position
-- [cursor_tail.glsl](cursor_tail.glsl): Comet-like trail, mimicing kitty terminal's cursor_trail effect
+- [cursor_warp.glsl](ghostty/cursor_warp.glsl): Neovide-like cursor trail, most customizable shader
+- [cursor_sweep.glsl](ghostty/cursor_sweep.glsl): Animated trail that shrinks from previous to current cursor position
+- [cursor_tail.glsl](ghostty/cursor_tail.glsl): Comet-like trail, mimicing kitty terminal's cursor_trail effect
+- kitty ports (trails only): [kitty/](kitty/) (`cursor-warp`, `cursor-sweep`, `cursor-tail`)
 
 ## Pulse/Boom effects
 - These trigger on cursor mode changes (block to line or vice versa, looks cool on changing modes in vim)
-- [sonic_boom_cursor.glsl](sonic_boom_cursor.glsl): expanding filled circle 
-- [ripple_cursor.glsl](ripple_cursor.glsl): Expanding circular ring ripple effect
-- [rectangle_boom_cursor.glsl](rectangle_boom_cursor.glsl): Same as boom_cursor but rectangular(cursor shape)
-- [ripple_rectangle_cursor.glsl](ripple_rectangle_cursor.glsl): Same as ripple_cursor but rectangular(cursor shape)
+- Ghostty only, kitty's shader API (0.49.2) exposes no cursor when the trail is inactive, so shape-only changes can't trigger these
+- [sonic_boom_cursor.glsl](ghostty/sonic_boom_cursor.glsl): expanding filled circle 
+- [ripple_cursor.glsl](ghostty/ripple_cursor.glsl): Expanding circular ring ripple effect
+- [rectangle_boom_cursor.glsl](ghostty/rectangle_boom_cursor.glsl): Same as boom_cursor but rectangular(cursor shape)
+- [ripple_rectangle_cursor.glsl](ghostty/ripple_rectangle_cursor.glsl): Same as ripple_cursor but rectangular(cursor shape)
 
 
 > [!NOTE]
 > If you have the line cursor (default), these effects will trigger and freeze on unfocus(as cursor changes to hollow block). The solution is to add `custom-shader-animation = always` to your ghostty config
 
 ## Usage
+
+### Ghostty
 
 1. Clone the repo into your ghostty shaders directory:
 ```bash
@@ -38,11 +42,27 @@ git clone https://github.com/sahaj-b/ghostty-cursor-shaders ~/.config/ghostty/sh
 
 2. In your `~/.config/ghostty/config`, add:
 ```config
-custom-shader = shaders/yourshader1.glsl
-custom-shader = shaders/yourshader2.glsl
+custom-shader = shaders/ghostty/yourshader1.glsl
+custom-shader = shaders/ghostty/yourshader2.glsl
 # ...
 ```
 Replace `yourshader` with the name of any shader file (e.g., `cursor_sweep`, `ripple_cursor`, etc.)
+
+### Kitty (trails only, needs kitty >= 0.49)
+
+1. Copy the `kitty/` folder into your kitty config:
+```bash
+cp -r kitty/* ~/.config/kitty/shaders/
+```
+
+2. In your `~/.config/kitty/kitty.conf`, add (pick ONE trail):
+```config
+cursor_trail 1
+custom_shaders cursor-warp
+# custom_shaders cursor-sweep
+# custom_shaders cursor-tail
+```
+The kitty `cursor-warp` ships with the customized (faded warp) values from below
 
 
 ## Customization
