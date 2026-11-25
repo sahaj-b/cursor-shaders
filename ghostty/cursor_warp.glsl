@@ -296,8 +296,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
 
         float finalAlpha = trail.a * shapeAlpha;
 
-        // newColor.a to preserve the background alpha.
-        newColor = mix(newColor, vec4(trail.rgb, newColor.a), finalAlpha);
+        // Opaque trail: with macos-glass-* blur, default-background cells have alpha 0, so newColor.a hid the trail there.
+        newColor = mix(newColor, vec4(trail.rgb, 1.0), finalAlpha);
 
         // punch hole on the trail, so current cursor is drawn on top
         newColor = mix(newColor, fragColor, step(sdfCurrentCursor, 0.));
